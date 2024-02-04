@@ -2,11 +2,11 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include "Shader.h"
 #include "Renderer.h"
 #include "Rect.h"
+#include "CollisionUtil.h"
 
 // -------- GLOBALS -------- //
 
@@ -18,7 +18,9 @@ Rect movingRect(
     { 225 / 255.0f, 216 / 255.0f, 159 / 255.0f }
 );
 
-glm::vec2 velocity(0, 0);
+glm::vec2 velocity;
+glm::vec2 mousePos;
+bool mouseHeld = false;
 
 // -------- CALLBACKS -------- //
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -26,9 +28,22 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         glfwSetWindowShouldClose(window, true);
 }
 
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    
+    // Allow user to drag the moving rectangle around
+    if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
+        mouseHeld = true;
+    else
+        mouseHeld = false;
+
+}
+
 void cursor_callback(GLFWwindow* window, double xpos, double ypos) {
     velocity.x = xpos - (movingRect.x + movingRect.w / 2.0f);
     velocity.y = ypos - (movingRect.y + movingRect.h / 2.0f);
+
+    mousePos.x = xpos;
+    mousePos.y = ypos;
 }
 
 // -------- FUNCTIONS -------- //
@@ -49,7 +64,9 @@ GLFWwindow* InitWindow(int width, int height) {
     glfwMakeContextCurrent(window);
     glfwSetKeyCallback(window, key_callback);
     glfwSetCursorPosCallback(window, cursor_callback);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwWindowHint(GLFW_SAMPLES, 4); // 4xMSAA
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     return window;
 }
@@ -73,11 +90,11 @@ int main()
     Renderer renderer(windowWidth, windowHeight);
 
     // ----- SCENE INIT ----- //
-    float staticRectDim = 180.0f;
-    Rect staticRect{
-        windowWidth / 2.0f - staticRectDim / 2.0f, 
-        windowHeight / 2.0f - staticRectDim / 2.0f, 
-        staticRectDim, staticRectDim,
+    float fixedRectDim = 100.0f;
+    Rect fixedRect{
+        windowWidth / 2.0f - fixedRectDim / 2.0f, 
+        windowHeight / 2.0f - fixedRectDim / 2.0f, 
+        fixedRectDim, fixedRectDim,
         { 0.1f, 0.12f, 0.15f }
     };
     // ---------------------- //
@@ -90,15 +107,36 @@ int main()
         glClear(GL_COLOR_BUFFER_BIT);
 
         // ----- UPDATE ----- //
+        glm::vec2 projectionLength;
+        SweptCollisionInfo sweptInfo = SweptAABB(movingRect, fixedRect, velocity);
+        if (sweptInfo.collided) {
+            projectionLength = {
+                velocity.x * sweptInfo.collisionTime,
+                velocity.y * sweptInfo.collisionTime
+            };
+        }
+        else {
+            projectionLength = { velocity.x, velocity.y };
+        }
+
         Rect projection{
-            movingRect.x + velocity.x, movingRect.y + velocity.y,
+            movingRect.x + projectionLength.x, 
+            movingRect.y + projectionLength.y,
             movingRect.w, movingRect.h,
             movingRect.color
         };
+
+        // Move the moving rect around using the mouse
+        if (mouseHeld && SimplePointAABB(movingRect, mousePos)) {
+            movingRect.x = mousePos.x - movingRect.w / 2.0f;
+            movingRect.y = mousePos.y - movingRect.h / 2.0f;
+        }
         // ------------------ //
 
+
+
         // ----- RENDER ----- //
-        renderer.RenderRect(staticRect, shader);
+        renderer.RenderRect(fixedRect, shader);
         renderer.RenderRect(movingRect, shader);
         renderer.RenderHollowRect(projection, shader);
         renderer.RenderLine(
